@@ -1,10 +1,12 @@
 services:
   - type: web
     name: paper-analyzer
-    runtime: python312
+    runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPSEEK_BASE_URL
