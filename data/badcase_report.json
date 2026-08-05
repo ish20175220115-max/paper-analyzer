@@ -1,0 +1,88 @@
+{
+  "test_date": "待填写",
+  "total_cases": 0,
+  "passed": 0,
+  "failed": 0,
+  "manual_cases": [
+    {
+      "id": "BC-M001",
+      "name": "幻觉引用测试",
+      "description": "输入一篇不存在的论文标题，观察系统是否编造分析",
+      "input": "构造一篇虚构论文的 markdown",
+      "expected": "系统应拒绝分析或明确说明论文信息不足",
+      "actual": "待测试",
+      "level": "L1-事实性错误",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M002",
+      "name": "跨学科混淆测试",
+      "description": "输入计算语言学论文但选择纯人文模板",
+      "input": "一篇 NLP 论文 + 仅选「可引用论点」",
+      "expected": "分析内容应与论文实际内容匹配",
+      "actual": "待测试",
+      "level": "L2-理解性偏差",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M003",
+      "name": "公式/图表丢失测试",
+      "description": "输入含大量 LaTeX 公式的论文",
+      "input": "含 $$ 公式块的 markdown 论文",
+      "expected": "公式在分析中被引用而非忽略",
+      "actual": "待测试",
+      "level": "L3-完整性缺失",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M004",
+      "name": "长文截断测试",
+      "description": "输入 5 万字以上的博士论文",
+      "input": "一篇完整博士论文 markdown",
+      "expected": "全文覆盖或明确说明聚焦范围",
+      "actual": "待测试",
+      "level": "L3-完整性缺失",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M005",
+      "name": "综述论文识别测试",
+      "description": "输入综述论文而非原创研究",
+      "input": "一篇文献综述 markdown",
+      "expected": "不应将综述当作原创研究分析其方法论",
+      "actual": "待测试",
+      "level": "L2-理解性偏差",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M006",
+      "name": "一致性测试",
+      "description": "同一篇论文跑 3 次",
+      "input": "同一篇论文连续分析 3 次",
+      "expected": "核心结论应一致",
+      "actual": "待测试",
+      "level": "L2-理解性偏差",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M007",
+      "name": "格式破坏测试",
+      "description": "损坏的 markdown 结构",
+      "input": "标题层级混乱、嵌套错误的 markdown",
+      "expected": "不崩溃，能给出部分分析",
+      "actual": "待测试",
+      "level": "L3-完整性缺失",
+      "reproducible": "待确认"
+    },
+    {
+      "id": "BC-M008",
+      "name": "中英混排术语测试",
+      "description": "中文论文大量英文术语",
+      "input": "中文学术论文含大量英文专业术语",
+      "expected": "关键术语不被翻译错误",
+      "actual": "待测试",
+      "level": "L2-理解性偏差",
+      "reproducible": "待确认"
+    }
+  ]
+}

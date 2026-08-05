@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+{% block title %}新建分析 - 个人论文分析管理智能体{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:16px;">
+  <a href="/" style="color:var(--color-text-muted);font-size:0.85rem;text-decoration:none;">← 返回列表</a>
+</div>
+<h2 style="font-size:1.05rem;font-weight:600;margin-bottom:16px;" id="page-title">📝 新建分析</h2>
+
+<!-- 步骤 1：输入论文 -->
+<div class="card">
+  <h3 style="font-size:0.95rem;margin-bottom:12px;">第一步：输入论文内容（Markdown 格式）</h3>
+  <div style="margin-bottom:8px;">
+    <input type="file" id="file-input" accept=".md,.txt,.markdown" style="margin-bottom:8px;">
+    <span class="text-muted">或直接粘贴到下方文本框</span>
+  </div>
+  <textarea id="paper-content"
+    placeholder="在此粘贴论文的 Markdown 内容...&#10;&#10;支持标准 Markdown 格式：标题、段落、列表、引用等。&#10;最少 200 个字符。"></textarea>
+  <div id="char-count" class="text-muted mt-12" style="display:none;">
+    已输入 <strong id="char-num">0</strong> 字符
+  </div>
+</div>
+
+<!-- 步骤 2：选择并定制分析维度 -->
+<div class="card">
+  <h3 style="font-size:0.95rem;margin-bottom:4px;">第二步：选择分析维度（至少勾选一个）</h3>
+  <p class="text-muted" style="margin-bottom:14px;">点击 ✎ 可编辑维度名称和分析要求，修改后仅本次生效</p>
+
+  <div class="dimension-grid" id="dimension-grid">
+    {% for dim in dimensions %}
+    <div class="dimension-card" data-key="{{ dim.key }}" id="dim-card-{{ dim.key }}">
+      <!-- 显示模式 -->
+      <div class="dim-view" id="dim-view-{{ dim.key }}">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <input type="checkbox" value="{{ dim.key }}" onchange="toggleDimension(this)" style="margin-top:2px;accent-color:var(--color-primary);">
+          <div style="flex:1;min-width:0;">
+            <div class="dimension-label" id="dim-label-display-{{ dim.key }}">{{ dim.label }}</div>
+            <div class="dimension-desc" id="dim-desc-display-{{ dim.key }}">{{ dim.description[:60] }}{% if dim.description|length > 60 %}...{% endif %}</div>
+          </div>
+          <button type="button" class="btn-edit" onclick="startEdit('{{ dim.key }}')" title="编辑此维度">✎</button>
+        </div>
+      </div>
+      <!-- 编辑模式（默认隐藏） -->
+      <div class="dim-edit" id="dim-edit-{{ dim.key }}" style="display:none;">
+        <label style="font-size:0.8rem;font-weight:500;">维度名称</label>
+        <input type="text" id="dim-label-input-{{ dim.key }}" maxlength="30"
+               style="width:100%;padding:6px 8px;border:1px solid var(--color-primary);border-radius:4px;font-size:0.85rem;margin-bottom:8px;">
+        <label style="font-size:0.8rem;font-weight:500;">分析要求（描述越具体，AI 分析越精准）</label>
+        <textarea id="dim-desc-input-{{ dim.key }}" maxlength="1500" rows="4"
+                  style="width:100%;min-height:50px;padding:6px 8px;border:1px solid var(--color-primary);border-radius:4px;font-size:0.82rem;font-family:inherit;resize:vertical;margin-bottom:8px;"></textarea>
+        <div style="display:flex;gap:6px;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="saveEdit('{{ dim.key }}')">确认</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="restoreDefault('{{ dim.key }}')">恢复默认</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="cancelEdit('{{ dim.key }}')">取消</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- 步骤 3：开始分析 -->
+<div class="card" style="text-align:center;">
+  <button id="analyze-btn" class="btn btn-primary" onclick="startAnalysis()" disabled>
+    🔍 开始分析
+  </button>
+  <div class="text-muted mt-12" id="btn-hint">请先输入论文内容并选择至少一个分析维度</div>
+</div>
+
+<!-- 分析状态 -->
+<div id="status-area"></div>
+
+<!-- 分析结果 -->
+<div id="result-area" style="display:none;">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-size:1rem;">分析报告：<span id="result-title" style="color:var(--color-primary);"></span></h3>
+      <button class="btn btn-primary" onclick="saveReport()">💾 保存报告</button>
+    </div>
+    <div id="sections-container"></div>
+    <div id="warnings-area"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ===== 状态 =====
+let analysisResult = null;
+let paperContent = '';
+let selectedDimensions = [];  // 勾选的维度 key 列表
+let editingReportId = null;  // 非 null 表示正在编辑已有报告
+
+// ===== 编辑模式：从列表页点"编辑"进入 =====
+const urlParams = new URLSearchParams(window.location.search);
+editingReportId = urlParams.get('edit');
+
+if (editingReportId) {
+  document.getElementById('page-title').textContent = '📝 编辑报告';
+}
+
+// ===== sessionStorage：导航时保留页面状态 =====
+const STORAGE_KEY = 'paper_analyzer_upload_state';
+
+function saveState() {
+  if (!paperContent.trim() && !analysisResult) return; // 没内容就不存
+  const state = {
+    paperContent: paperContent,
+    selectedDimensions: selectedDimensions,
+    dimensionEdits: dimensionEdits,
+    analysisResult: analysisResult,
+    editingReportId: editingReportId,
+  };
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch(e) { /* quota exceeded, ignore */ }
+}
+
+function restoreState() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    if (state.paperContent) {
+      paperContent = state.paperContent;
+      document.getElementById('paper-content').value = paperContent;
+      document.getElementById('paper-content').dispatchEvent(new Event('input'));
+    }
+    if (state.selectedDimensions) {
+      state.selectedDimensions.forEach(key => {
+        const cb = document.querySelector(`input[value="${key}"]`);
+        if (cb) { cb.checked = true; toggleDimension(cb); }
+      });
+    }
+    if (state.dimensionEdits) {
+      dimensionEdits = state.dimensionEdits;
+      // 更新显示
+      Object.keys(dimensionEdits).forEach(key => {
+        if (dimensionEdits[key].label !== DIMENSION_DEFAULTS[key]?.label ||
+            dimensionEdits[key].description !== DIMENSION_DEFAULTS[key]?.description) {
+          applyEditToDisplaySilent(key);
+        }
+      });
+    }
+    if (state.analysisResult) {
+      analysisResult = state.analysisResult;
+      renderResult(analysisResult);
+    }
+    if (state.editingReportId) {
+      editingReportId = state.editingReportId;
+    }
+    return true;
+  } catch(e) { return false; }
+}
+
+// 页面离开前保存状态
+window.addEventListener('beforeunload', saveState);
+// 定时自动保存（防止意外关闭丢状态）
+setInterval(saveState, 5000);
+
+// ===== 维度默认值（服务端渲染注入） =====
+const DIMENSION_DEFAULTS = {
+  {% for dim in dimensions %}
+  "{{ dim.key }}": { label: "{{ dim.label }}", description: "{{ dim.description|replace('"', '\\"')|replace('\n', '\\n') }}" },
+  {% endfor %}
+};
+
+// 用户当前编辑中的值（未编辑的维度与默认值一致）
+let dimensionEdits = {};
+// 初始化：所有维度从默认值开始
+Object.keys(DIMENSION_DEFAULTS).forEach(key => {
+  dimensionEdits[key] = { ...DIMENSION_DEFAULTS[key] };
+});
+
+// ===== 维度选择 =====
+function toggleDimension(checkbox) {
+  const key = checkbox.value;
+  const card = document.getElementById('dim-card-' + key);
+  if (checkbox.checked) {
+    card.classList.add('selected');
+    if (!selectedDimensions.includes(key)) selectedDimensions.push(key);
+  } else {
+    card.classList.remove('selected');
+    selectedDimensions = selectedDimensions.filter(k => k !== key);
+  }
+  updateAnalyzeButton();
+}
+
+// ===== 维度编辑 =====
+function startEdit(key) {
+  const edit = dimensionEdits[key];
+  document.getElementById('dim-view-' + key).style.display = 'none';
+  document.getElementById('dim-edit-' + key).style.display = 'block';
+  document.getElementById('dim-label-input-' + key).value = edit.label;
+  document.getElementById('dim-desc-input-' + key).value = edit.description;
+}
+
+function saveEdit(key) {
+  const newLabel = document.getElementById('dim-label-input-' + key).value.trim();
+  const newDesc = document.getElementById('dim-desc-input-' + key).value.trim();
+  if (!newLabel) return;  // 名称不能为空
+
+  dimensionEdits[key] = { label: newLabel, description: newDesc };
+  applyEditToDisplay(key);
+}
+
+function restoreDefault(key) {
+  dimensionEdits[key] = { ...DIMENSION_DEFAULTS[key] };
+  document.getElementById('dim-label-input-' + key).value = DIMENSION_DEFAULTS[key].label;
+  document.getElementById('dim-desc-input-' + key).value = DIMENSION_DEFAULTS[key].description;
+  applyEditToDisplay(key);
+}
+
+function cancelEdit(key) {
+  // 恢复输入框为当前编辑中值
+  document.getElementById('dim-label-input-' + key).value = dimensionEdits[key].label;
+  document.getElementById('dim-desc-input-' + key).value = dimensionEdits[key].description;
+  applyEditToDisplay(key);
+}
+
+function applyEditToDisplay(key) {
+  const edit = dimensionEdits[key];
+  document.getElementById('dim-label-display-' + key).textContent = edit.label;
+  const descDisplay = edit.description.length > 60 ? edit.description.substring(0, 60) + '...' : edit.description;
+  document.getElementById('dim-desc-display-' + key).textContent = descDisplay;
+  document.getElementById('dim-edit-' + key).style.display = 'none';
+  document.getElementById('dim-view-' + key).style.display = 'block';
+}
+
+// sessionStorage 恢复时不切换显示/编辑模式
+function applyEditToDisplaySilent(key) {
+  const edit = dimensionEdits[key];
+  if (edit.label !== DIMENSION_DEFAULTS[key]?.label ||
+      edit.description !== DIMENSION_DEFAULTS[key]?.description) {
+    document.getElementById('dim-label-display-' + key).textContent = edit.label;
+    const descDisplay = edit.description.length > 60 ? edit.description.substring(0, 60) + '...' : edit.description;
+    document.getElementById('dim-desc-display-' + key).textContent = descDisplay;
+  }
+}
+
+// ===== 内容输入 =====
+document.getElementById('paper-content').addEventListener('input', function() {
+  const len = this.value.length;
+  document.getElementById('char-count').style.display = len > 0 ? 'block' : 'none';
+  document.getElementById('char-num').textContent = len;
+  paperContent = this.value;
+  updateAnalyzeButton();
+});
+
+document.getElementById('file-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    document.getElementById('paper-content').value = ev.target.result;
+    paperContent = ev.target.result;
+    document.getElementById('paper-content').dispatchEvent(new Event('input'));
+  };
+  reader.readAsText(file, 'UTF-8');
+});
+
+function updateAnalyzeButton() {
+  const btn = document.getElementById('analyze-btn');
+  const hint = document.getElementById('btn-hint');
+  const len = paperContent.trim().length;
+  if (len >= 200 && selectedDimensions.length > 0) {
+    btn.disabled = false;
+    hint.textContent = `准备就绪：${len} 字符，${selectedDimensions.length} 个分析维度`;
+  } else {
+    btn.disabled = true;
+    if (len < 200) hint.textContent = `已输入 ${len} 字符，至少需要 200 字符才能开始分析`;
+    else if (selectedDimensions.length === 0) hint.textContent = '请至少勾选一个分析维度';
+  }
+}
+
+// ===== 构建请求中的维度数据 =====
+function buildDimensionsPayload() {
+  // 只发送勾选的维度，使用当前编辑后的值
+  return selectedDimensions.map(key => ({
+    label: dimensionEdits[key].label,
+    description: dimensionEdits[key].description,
+  }));
+}
+
+// ===== 分析 =====
+async function startAnalysis() {
+  if (!paperContent.trim() || selectedDimensions.length === 0) return;
+
+  const statusArea = document.getElementById('status-area');
+  const resultArea = document.getElementById('result-area');
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 分析中...';
+  resultArea.style.display = 'none';
+  statusArea.innerHTML = `<div class="card"><div class="loading"><div class="spinner"></div><span>AI 正在分析论文，预计需要 10-30 秒...</span></div></div>`;
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: paperContent,
+        dimensions: buildDimensionsPayload(),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail?.message || '分析失败');
+    analysisResult = data;
+    renderResult(data);
+    statusArea.innerHTML = '';
+  } catch (e) {
+    statusArea.innerHTML = `<div class="error-msg"><strong>分析失败：</strong>${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 重新分析';
+  }
+}
+
+function renderResult(data) {
+  document.getElementById('result-title').textContent = data.paper_title;
+  document.getElementById('result-area').style.display = 'block';
+  document.getElementById('sections-container').innerHTML = data.sections.map((s, i) => `
+    <div class="section-card">
+      <div class="section-header">
+        <span>📌 ${escapeHtml(s.dimension)}</span>
+        <button class="btn btn-outline btn-sm" onclick="editSection(${i})">编辑</button>
+      </div>
+      <div class="section-body" id="section-body-${i}">
+        <div class="section-content" id="section-content-${i}">${escapeHtml(s.content).replace(/\n/g, '<br>')}</div>
+      </div>
+    </div>`).join('');
+  if (data.warnings && data.warnings.length > 0) {
+    document.getElementById('warnings-area').innerHTML = data.warnings.map(w =>
+      `<div class="warning-msg">⚠️ ${escapeHtml(w)}</div>`).join('');
+  } else {
+    document.getElementById('warnings-area').innerHTML = '';
+  }
+}
+
+// ===== 编辑报告段落 =====
+function editSection(index) {
+  const body = document.getElementById('section-body-' + index);
+  const content = analysisResult.sections[index].content;
+  body.innerHTML = `<textarea id="edit-textarea-${index}">${escapeHtml(content)}</textarea>
+    <div class="mt-12" style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm" onclick="saveEditSection(${index})">确认修改</button>
+      <button class="btn btn-outline btn-sm" onclick="cancelEditSection(${index})">取消</button>
+    </div>`;
+}
+function saveEditSection(index) {
+  analysisResult.sections[index].content = document.getElementById('edit-textarea-' + index).value;
+  document.getElementById('section-body-' + index).innerHTML =
+    `<div class="section-content" id="section-content-${index}">${escapeHtml(analysisResult.sections[index].content).replace(/\n/g, '<br>')}</div>`;
+}
+function cancelEditSection(index) {
+  document.getElementById('section-body-' + index).innerHTML =
+    `<div class="section-content" id="section-content-${index}">${escapeHtml(analysisResult.sections[index].content).replace(/\n/g, '<br>')}</div>`;
+}
+
+// ===== 保存 =====
+async function saveReport() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ 保存中...';
+  try {
+    const isEdit = !!editingReportId;
+    const url = isEdit ? `/api/reports/${editingReportId}` : '/api/reports';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paper_title: analysisResult.paper_title,
+        original_content: paperContent,
+        sections: analysisResult.sections,
+        dimensions: analysisResult.dimensions_used || buildDimensionsPayload().map(d => d.label),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail?.message || '保存失败');
+
+    // 保存成功后清除 sessionStorage
+    sessionStorage.removeItem(STORAGE_KEY);
+
+    const reportId = isEdit ? editingReportId : data.id;
+    document.getElementById('status-area').innerHTML =
+      `<div class="success-msg">✅ 报告已保存！<a href="/report/${reportId}">查看报告</a> | <a href="/">返回列表</a></div>`;
+    btn.textContent = '✅ 已保存';
+  } catch (e) {
+    document.getElementById('status-area').innerHTML = `<div class="error-msg">保存失败：${escapeHtml(e.message)}</div>`;
+    btn.disabled = false;
+    btn.textContent = '💾 保存报告';
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ===== 页面初始化 =====
+(async function init() {
+  if (editingReportId) {
+    // 编辑模式：从 API 加载已有报告
+    try {
+      const res = await fetch(`/api/reports/${editingReportId}`);
+      if (!res.ok) throw new Error('报告不存在');
+      const report = await res.json();
+
+      paperContent = report.original_content || '';
+      document.getElementById('paper-content').value = paperContent;
+      document.getElementById('paper-content').dispatchEvent(new Event('input'));
+
+      // 恢复维度勾选（根据报告中的维度标签反查 key）
+      const dimLabels = report.sections.map(s => s.dimension);
+      const keyMap = {};
+      {% for dim in dimensions %}
+      keyMap['{{ dim.label }}'] = '{{ dim.key }}';
+      {% endfor %}
+      dimLabels.forEach(label => {
+        const key = keyMap[label] || label;
+        const cb = document.querySelector(`input[value="${key}"]`);
+        if (cb) { cb.checked = true; toggleDimension(cb); }
+      });
+
+      // 假装分析已完成，直接渲染
+      analysisResult = {
+        paper_title: report.paper_title,
+        sections: report.sections,
+        dimensions_used: dimLabels,
+      };
+      renderResult(analysisResult);
+      document.getElementById('page-title').textContent = '📝 编辑报告';
+    } catch (e) {
+      document.getElementById('status-area').innerHTML =
+        `<div class="error-msg">加载报告失败：${escapeHtml(e.message)}</div>`;
+    }
+  } else {
+    // 普通模式：尝试恢复 sessionStorage 状态
+    restoreState();
+  }
+})();
+</script>
+{% endblock %}

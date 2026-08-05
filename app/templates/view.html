@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}查看报告 - 个人论文分析管理智能体{% endblock %}
+
+{% block content %}
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <span>加载报告...</span>
+</div>
+
+<div id="report-content" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+    <div>
+      <a href="/" style="color:var(--color-text-muted);font-size:0.85rem;text-decoration:none;">← 返回列表</a>
+      <a href="/upload" style="color:var(--color-text-muted);font-size:0.85rem;text-decoration:none;margin-left:12px;">← 返回上传页</a>
+      <h2 id="report-title-display" style="font-size:1.05rem;font-weight:600;margin-top:6px;"></h2>
+      <div class="text-muted" id="report-meta"></div>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button id="edit-btn" class="btn btn-outline btn-sm" onclick="toggleEdit()">✎ 编辑</button>
+      <button id="delete-btn" class="btn btn-danger btn-sm" onclick="deleteThis()">删除</button>
+    </div>
+  </div>
+
+  <!-- 显示模式 -->
+  <div id="sections-view"></div>
+
+  <!-- 编辑模式 -->
+  <div id="sections-edit" style="display:none;">
+    <div id="edit-sections-container"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-primary" onclick="saveEdits()">💾 保存修改</button>
+      <button class="btn btn-outline" onclick="toggleEdit()">取消</button>
+    </div>
+    <div id="edit-status"></div>
+  </div>
+
+  <div id="error-msg" class="error-msg" style="display:none;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let reportData = null;
+let reportId = '{{ report_id }}';
+
+async function loadReport() {
+  try {
+    const res = await fetch(`/api/reports/${reportId}`);
+    if (!res.ok) { const err = await res.json(); throw new Error(err.detail?.message || '报告不存在'); }
+    reportData = await res.json();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('report-content').style.display = 'block';
+    document.getElementById('report-title-display').textContent = reportData.paper_title;
+    document.getElementById('report-meta').textContent = `保存时间：${reportData.created_at}`;
+
+    renderView();
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('report-content').style.display = 'block';
+    document.getElementById('error-msg').style.display = 'block';
+    document.getElementById('error-msg').textContent = '加载失败: ' + e.message;
+  }
+}
+
+function renderView() {
+  document.getElementById('sections-view').innerHTML = reportData.sections.map((s, i) => `
+    <div class="section-card">
+      <div class="section-header">📌 ${escapeHtml(s.dimension)}</div>
+      <div class="section-body">${escapeHtml(s.content).replace(/\n/g, '<br>')}</div>
+    </div>`).join('');
+}
+
+function toggleEdit() {
+  const viewing = document.getElementById('sections-view');
+  const editing = document.getElementById('sections-edit');
+  const editBtn = document.getElementById('edit-btn');
+
+  if (editing.style.display === 'none') {
+    viewing.style.display = 'none';
+    editing.style.display = 'block';
+    editBtn.textContent = '✎ 取消编辑';
+    document.getElementById('edit-status').innerHTML = '';
+
+    document.getElementById('edit-sections-container').innerHTML = reportData.sections.map((s, i) => `
+      <div class="section-card">
+        <div class="section-header">📌 ${escapeHtml(s.dimension)}</div>
+        <div class="section-body">
+          <textarea id="edit-textarea-${i}" style="width:100%;min-height:150px;font-family:inherit;font-size:0.9rem;line-height:1.7;border:1px dashed var(--color-border);border-radius:4px;padding:10px;">${escapeHtml(s.content)}</textarea>
+        </div>
+      </div>`).join('');
+  } else {
+    viewing.style.display = 'block';
+    editing.style.display = 'none';
+    editBtn.textContent = '✎ 编辑';
+  }
+}
+
+async function saveEdits() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ 保存中...';
+
+  const sections = reportData.sections.map((s, i) => ({
+    dimension: s.dimension,
+    content: document.getElementById(`edit-textarea-${i}`).value,
+  }));
+
+  try {
+    const res = await fetch(`/api/reports/${reportId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paper_title: reportData.paper_title,
+        original_content: reportData.original_content,
+        sections: sections,
+        dimensions: sections.map(s => s.dimension),
+      }),
+    });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.detail?.message || '保存失败'); }
+
+    reportData.sections = sections;
+    renderView();
+    toggleEdit();
+    document.getElementById('edit-status').innerHTML = '<div class="success-msg">✅ 已保存</div>';
+  } catch (e) {
+    document.getElementById('edit-status').innerHTML = `<div class="error-msg">${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 保存修改';
+  }
+}
+
+async function deleteThis() {
+  if (!confirm(`确定要删除「${reportData.paper_title}」吗？此操作不可撤销。`)) return;
+  try {
+    const res = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('删除失败');
+    window.location.href = '/';
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+loadReport();
+</script>
+{% endblock %}
