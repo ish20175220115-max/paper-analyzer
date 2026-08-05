@@ -15,3 +15,5 @@ services:
         value: deepseek-v4-pro
       - key: DEEPSEEK_FLASH_MODEL
         value: deepseek-v4-flash
+      - key: ACCESS_KEY
+        sync: false

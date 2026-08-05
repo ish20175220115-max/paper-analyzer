@@ -21,6 +21,9 @@ DEEPSEEK_FLASH_MODEL = os.getenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash")
 # 使用 Flash 模型的分析维度（key 列表）
 FLASH_DIMENSION_KEYS = {"research_question", "limitations", "methodology"}
 
+# 访问控制（设为空字符串则不启用）
+ACCESS_KEY = os.getenv("ACCESS_KEY", "")
+
 # 论文内容限制
 MIN_CONTENT_LENGTH = 200        # 最少 200 字符
 MAX_CONTENT_LENGTH = 200_000    # 最多 20 万字符

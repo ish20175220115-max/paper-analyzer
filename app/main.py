@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from app.config import BASE_DIR, DATA_DIR
+from app.config import BASE_DIR, DATA_DIR, ACCESS_KEY
 from app.routers import analysis, pages
 
 # 配置日志
@@ -31,6 +31,17 @@ app = FastAPI(
     description="输入 markdown 格式论文，AI 自动生成结构化分析报告",
     version="0.1.0",
 )
+
+
+# 访问密钥中间件（ACCESS_KEY 为空则不启用）
+@app.middleware("http")
+async def access_guard(request: Request, call_next):
+    if ACCESS_KEY and request.url.path != "/health":
+        if request.query_params.get("key") != ACCESS_KEY:
+            raise HTTPException(status_code=403, detail={
+                "message": "访问被拒绝。请在链接后添加 ?key=你的密钥",
+            })
+    return await call_next(request)
 
 
 # 简易每日调用限流中间件
