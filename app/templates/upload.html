@@ -295,7 +295,7 @@ async function startAnalysis() {
   btn.disabled = true;
   btn.textContent = '⏳ 分析中...';
   resultArea.style.display = 'none';
-  statusArea.innerHTML = `<div class="card"><div class="loading"><div class="spinner"></div><span>AI 正在分析论文，预计需要 10-30 秒...</span></div></div>`;
+  statusArea.innerHTML = `<div class="card"><div class="loading"><div class="spinner"></div><span>AI 正在分析论文，预计需要 1-2 分钟...</span></div></div>`;
 
   try {
     const res = await fetch('/api/analyze', {
