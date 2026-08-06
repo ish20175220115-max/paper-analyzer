@@ -8,8 +8,10 @@
 """
 import json
 import re
+import logging
 
 from openai import OpenAI
+from json_repair import repair_json
 
 from app.config import (
     DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
@@ -100,12 +102,18 @@ def _parse_analysis_response(raw_text: str) -> dict:
 
     try:
         data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise AnalysisError(
-            f"API 返回的 JSON 格式无效: {e}。"
-            f"解析到的 JSON 字符串前 500 字符: {json_str[:500]}",
-            "json_parse_error",
-        )
+    except json.JSONDecodeError:
+        # JSON 损坏时尝试自动修复（处理未转义引号、缺少逗号等常见问题）
+        try:
+            repaired = repair_json(json_str)
+            data = json.loads(repaired)
+            logging.getLogger(__name__).warning("JSON 格式已自动修复")
+        except Exception:
+            raise AnalysisError(
+                f"API 返回的 JSON 格式无效且无法自动修复。"
+                f"原始内容前 500 字符: {json_str[:500]}",
+                "json_parse_error",
+            )
 
     if "paper_title" not in data:
         raise AnalysisError("API 响应缺少 paper_title 字段", "missing_fields")
@@ -207,29 +215,41 @@ def _get_dimension_key(dimension: DimensionSpec) -> str | None:
     return label_to_key.get(dimension.label)
 
 
-def _call_api(content: str, dimensions: list[DimensionSpec], model: str) -> dict:
-    """调用 DeepSeek API 分析论文（处理一组维度）"""
+def _call_api(content: str, dimensions: list[DimensionSpec], model: str,
+              retry: bool = True) -> dict:
+    """调用 DeepSeek API 分析论文（处理一组维度），JSON 解析失败时自动重试一次"""
+    logger = logging.getLogger(__name__)
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
     system_prompt = _build_system_prompt(dimensions)
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content},
-            ],
-            temperature=0.3,
-            max_tokens=16384,
-        )
-    except Exception as e:
-        raise AnalysisError(
-            f"调用 {model} 失败: {e}",
-            "api_call_error",
-        )
+    def _do_call():
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                temperature=0,       # 消除随机性，保证输出格式稳定
+                max_tokens=16384,
+            )
+        except Exception as e:
+            raise AnalysisError(f"调用 {model} 失败: {e}", "api_call_error")
 
+    response = _do_call()
     raw_text = response.choices[0].message.content or ""
-    result = _parse_analysis_response(raw_text)
+
+    try:
+        result = _parse_analysis_response(raw_text)
+    except AnalysisError as e:
+        if retry and e.error_type == "json_parse_error":
+            # JSON 格式损坏时重试一次
+            logger.warning(f"{model} JSON 解析失败，重试中...")
+            response = _do_call()
+            raw_text = response.choices[0].message.content or ""
+            result = _parse_analysis_response(raw_text)
+        else:
+            raise
 
     finish_reason = response.choices[0].finish_reason
     if finish_reason == "length":
