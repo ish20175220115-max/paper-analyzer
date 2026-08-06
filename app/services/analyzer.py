@@ -225,11 +225,15 @@ def _get_dimension_key(dimension: DimensionSpec) -> str | None:
 
 
 def _call_api(content: str, dimensions: list[DimensionSpec], model: str,
-              retry: bool = True) -> dict:
+              retry: bool = True, thinking: bool = False) -> dict:
     """调用 DeepSeek API 分析论文（处理一组维度），JSON 解析失败时自动重试一次"""
     logger = logging.getLogger(__name__)
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
     system_prompt = _build_system_prompt(dimensions)
+
+    extra = {}
+    if thinking:
+        extra["extra_body"] = {"thinking": {"type": "enabled"}}
 
     def _do_call():
         try:
@@ -239,8 +243,9 @@ def _call_api(content: str, dimensions: list[DimensionSpec], model: str,
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": content},
                 ],
-                temperature=0,       # 消除随机性，保证输出格式稳定
+                temperature=0,
                 max_tokens=16384,
+                **extra,
             )
         except Exception as e:
             raise AnalysisError(f"调用 {model} 失败: {e}", "api_call_error")
@@ -306,7 +311,7 @@ def analyze_paper(content: str, dimensions: list[DimensionSpec]) -> dict:
 
     if flash_dims:
         try:
-            flash_result = _call_api(content, flash_dims, DEEPSEEK_FLASH_MODEL)
+            flash_result = _call_api(content, flash_dims, DEEPSEEK_FLASH_MODEL, thinking=False)
             paper_title = flash_result["paper_title"]
             for j, idx in enumerate(flash_indices):
                 results_by_index[idx] = flash_result["sections"][j]
@@ -315,7 +320,7 @@ def analyze_paper(content: str, dimensions: list[DimensionSpec]) -> dict:
 
     if pro_dims:
         try:
-            pro_result = _call_api(content, pro_dims, DEEPSEEK_PRO_MODEL)
+            pro_result = _call_api(content, pro_dims, DEEPSEEK_PRO_MODEL, thinking=True)
             paper_title = pro_result["paper_title"]  # Pro 标题优先级更高（后覆盖）
             for j, idx in enumerate(pro_indices):
                 results_by_index[idx] = pro_result["sections"][j]
