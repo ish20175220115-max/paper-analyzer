@@ -81,6 +81,14 @@ def _parse_analysis_response(raw_text: str) -> dict:
     - 纯 JSON 文本
     - JSON 前后有额外文本
     """
+    # 检测 HTML 错误页面（服务端异常，非模型输出）
+    stripped = raw_text.strip()
+    if stripped.startswith("<!DOCTYPE") or stripped.startswith("<html"):
+        raise AnalysisError(
+            "API 服务返回了错误页面，可能是服务端异常或网络波动，请稍后重试。",
+            "html_response",
+        )
+
     json_match = re.search(r"```json\s*\n?(.*?)\n?```", raw_text, re.DOTALL)
     if json_match:
         json_str = json_match.group(1).strip()
