@@ -19,7 +19,7 @@ from app.config import (
     FLASH_DIMENSION_KEYS,
 )
 from app.models.schemas import DimensionSpec
-from app.models.templates import get_dimension_by_key, ANALYSIS_DIMENSIONS
+from app.models.templates import get_dimension_by_key, ANALYSIS_DIMENSIONS, get_full_prompt
 
 
 class AnalysisError(Exception):
@@ -36,7 +36,16 @@ def _build_system_prompt(dimensions: list[DimensionSpec]) -> str:
     # 构建维度描述列表
     dim_lines = []
     for i, d in enumerate(dimensions, 1):
-        desc = d.description.strip() if d.description.strip() else f"请从「{d.label}」的角度分析这篇论文"
+        desc = d.description.strip()
+        if not desc:
+            desc = f"请从「{d.label}」的角度分析这篇论文"
+        else:
+            # 如果用户未编辑过此维度（描述与模板默认值一致），自动注入 system_hint
+            key = _get_dimension_key(d)
+            if key:
+                template = get_dimension_by_key(key)
+                if template and d.description.strip() == template.get("description", "").strip():
+                    desc = get_full_prompt(template)
         dim_lines.append(f"{i}. **{d.label}**：{desc}")
 
     dim_desc = "\n".join(dim_lines)
