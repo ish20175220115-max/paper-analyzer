@@ -27,12 +27,10 @@
 
 ## 🚀 快速开始
 
-###** 1. 环境准备**
-
+### 1. 环境准备
 ```bash
 # Python 3.11+
 python --version
-
 # 安装依赖
 pip install -r requirements.txt
 ```
